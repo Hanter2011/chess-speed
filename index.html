@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Lichess Solo Trainer</title>
+<style>
+:root{--bg:#161512;--pn:#262421;--bt:#302e2c;--tx:#bababa;--ac:#3692e7;--gr:#629924;--l:#f0d9b5;--d:#b58863}
+.t1{--l:#eeeed2;--d:#769656}.t2{--l:#dee3e6;--d:#8ca2ad}.t3{--l:#d9d9d9;--d:#888}
+*{box-sizing:border-box;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:8px;background:var(--bg);color:var(--tx);font-family:sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;overflow:hidden}
+.bar{display:flex;width:100%;max-width:420px;gap:6px;margin-bottom:8px}
+.st{flex:1;background:var(--pn);padding:6px;border-radius:6px;text-align:center;font-size:12px}
+.st b{display:block;font-size:20px;color:#fff}
+#b{position:relative;display:grid;grid-template-columns:repeat(8,12.5%);grid-template-rows:repeat(8,12.5%);width:95vw;height:95vw;max-width:420px;max-height:420px;border-radius:3px;overflow:hidden;touch-action:none}
+.sq{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.l{background:var(--l)}.d{background:var(--d)}
+.sel::before{content:"";position:absolute;inset:0;background:rgba(20,85,30,.5)}
+.lst::before{content:"";position:absolute;inset:0;background:rgba(155,199,0,.42)}
+.dot::after{content:"";width:26%;height:26%;background:rgba(20,85,30,.42);border-radius:50%;z-index:2}
+.cap::after{content:"";position:absolute;inset:0;border:4px solid rgba(20,85,30,.42);border-radius:50%;z-index:2}
+.pc{width:88%;height:88%;pointer-events:none;z-index:3;display:flex;align-items:center;justify-content:center;font-size:9vw;font-weight:bold}
+.w{color:#fff;text-shadow:0 1px 2px #000,0 0 2px #000}.k{color:#111}
+#gh{position:fixed;top:0;left:0;width:14vw;height:14vw;max-width:60px;max-height:60px;pointer-events:none;z-index:99;display:none;will-change:transform;align-items:center;justify-content:center;font-size:11vw}
+.ui{width:100%;max-width:420px;margin-top:8px;display:flex;flex-direction:column;gap:5px}
+.row{display:flex;gap:5px;justify-content:center}
+button{background:var(--bt);color:#ddd;border:0;padding:9px 6px;border-radius:5px;font-size:13px;font-weight:600;flex:1}
+button.on{background:var(--ac);color:#fff}button.gr{background:var(--gr);color:#fff}
+#pal{display:none;background:var(--pn);padding:8px;border-radius:6px;width:100%;max-width:420px;margin-top:8px}
+.pg{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px}
+.pcell{aspect-ratio:1/1;background:var(--bt);border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:24px}
+.pcell.on{outline:2px solid var(--ac)}
+</style>
+</head>
+<body>
+<div class="bar">
+<div class="st">Время<b id="t">15.0</b></div>
+<div class="st">Ходы<b id="m">0</b></div>
+<div class="st">Ход/сек<b id="s">0.00</b></div>
+</div>
+<div id="b"></div>
+<div id="gh"></div>
+<div class="ui" id="ui">
+<div class="row">
+<button id="cw" class="on" onclick="setSide('w')">Белые</button>
+<button id="cb" onclick="setSide('b')">Черные</button>
+<button id="t15" class="on" onclick="setDur(15,this)">15с</button>
+<button id="t0" onclick="setDur(0,this)">∞</button>
+<button id="tc" onclick="askDur(this)">Своё</button>
+</div>
+<div class="row">
+<button onclick="nextTheme()">Тема</button>
+<button onclick="nextFont()">Фигуры</button>
+<button class="gr" onclick="rst()">Сброс</button>
+<button onclick="toggleEd(1)">Расставить</button>
+</div>
+</div>
+<div id="pal">
+<div class="pg" id="pg"></div>
+<div class="row">
+<button id="ec" class="on" onclick="edWho=edWho=='u'?'o':'u';this.textContent=edWho=='u'?'Мои':'Враг';buildPal()">Мои</button>
+<button onclick="P=Array(64).fill('');SV=P.slice();render()">Очистить</button>
+<button onclick="P=makeStart(side);SV=P.slice();render()">Начальная</button>
+<button class="gr" onclick="toggleEd(0)">В игру</button>
+</div>
+</div>
+<script>
+const SETS=[
+{w:{K:'♔',Q:'♕',R:'♖',B:'♗',N:'♘',P:'♙'},b:{K:'♚',Q:'♛',R:'♜',B:'♝',N:'♞',P:'♟'}},
+{w:{K:'K',Q:'Q',R:'R',B:'B',N:'N',P:'P'},b:{K:'k',Q:'q',R:'r',B:'b',N:'n',P:'p'}}
+];
+const B=document.getElementById('b'),G=document.getElementById('gh'),TH=['','t1','t2','t3'];
+let th=0,fnt=0,side='w',ed=0,edWho='u',tool='Q',dur=15,run=0,end=0,mv=0,tm=null;
+let sel=-1,lst=null,ep=-1,moved={},P=[],SV=[],sq=[],leg=new Set();
+let tid=null,df=-1,sx=0,sy=0,drg=0,gx=0,gy=0,raf=0;
+function makeStart(s){
+let a=Array(64).fill(''),bk=s=='w'?['uR','uN','uB','uQ','uK','uB','uN','uR']:['uR','uN','uB','uK','uQ','uB','uN','uR'];
+for(let i=0;i<8;i++){a[48+i]='uP';a[56+i]=bk[i];}return a;
+}
+P=makeStart('w');SV=P.slice();
+for(let i=0;i<64;i++){let d=document.createElement('div');B.appendChild(d);sq.push(d);}
+function idx(x,y){let r=B.getBoundingClientRect();return(x<r.left||x>r.right||y<r.top||y>r.bottom)?-1:Math.floor((y-r.top)/(r.height/8))*8+Math.floor((x-r.left)/(r.width/8));}
+function pHtml(code){
+if(!code)return'';let isU=code.charAt(0)=='u',col=isU?side:(side=='w'?'b':'w'),ch=SETS[fnt][col][code.charAt(1)];
+return`<div class="pc ${col=='w'?'w':'k'}">${ch}</div>`;
+}
+function getMoves(f){
+let r=[],pc=P[f];if(!pc||pc.charAt(0)!='u')return r;
+let t=pc.charAt(1),r1=f>>3,c1=f&7;
+const add=(rr,cc)=>{if(rr>=0&&rr<8&&cc>=0&&cc<8){let i=rr*8+cc;if(!P[i]||P[i].charAt(0)=='o')r.push(i);}};
+const sld=ds=>{for(let k=0;k<ds.length;k++){let dr=ds[k][0],dc=ds[k][1],rr=r1+dr,cc=c1+dc;while(rr>=0&&rr<8&&cc>=0&&cc<8){let i=rr*8+cc;if(!P[i])r.push(i);else{if(P[i].charAt(0)=='o')r.push(i);break;}rr+=dr;cc+=dc;}}};
+if(t=='P'){
+if(r1>0&&!P[f-8]){r.push(f-8);if(r1==6&&!P[f-16])r.push(f-16);}
+let dcs=[-1,1];for(let k=0;k<2;k++){let c2=c1+dcs[k];if(c2>=0&&c2<8&&r1>0){let i=(r1-1)*8+c2;if((P[i]&&P[i].charAt(0)=='o')||i===ep)r.push(i);}}
+}else if(t=='N'){
+let nd=[[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]];for(let k=0;k<8;k++)add(r1+nd[k][0],c1+nd[k][1]);
+}else if(t=='B'){sld([[-1,-1],[-1,1],[1,-1],[1,1]]);}
+else if(t=='R'){sld([[-1,0],[1,0],[0,-1],[0,1]]);}
+else if(t=='Q'){sld([[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]]);}
+else if(t=='K'){
+for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++)if(dr||dc)add(r1+dr,c1+dc);
+if(r1==7&&!moved[f]){
+if(!moved[63]&&P[63]=='uR'&&!P[f+1]&&!P[f+2]&&(c1==4||!P[f+3]))r.push(f+2);
+if(!moved[56]&&P[56]=='uR'&&!P[f-1]&&!P[f-2]&&(c1==3||!P[f-3]))r.push(f-2);
+}}
+return r;
+}
+function selectSq(i){sel=i;leg=new Set(i>=0?getMoves(i):[]);}
+function exec(f,t){
+if(!run){run=1;let st=performance.now();tm=setInterval(()=>{
+let el=(performance.now()-st)/1000;
+if(dur===0){document.getElementById('t').textContent=el.toFixed(1);if(el>0)document.getElementById('s').textContent=(mv/el).toFixed(2);}
+else{let lf=Math.max(0,dur-el);document.getElementById('t').textContent=lf.toFixed(1);if(el>0)document.getElementById('s').textContent=(mv/el).toFixed(2);if(lf<=0){clearInterval(tm);run=0;end=1;selectSq(-1);drg=0;G.style.display='none';render();}}
+},50);}
+let pc=P[f],tp=pc.charAt(1),r1=f>>3,r2=t>>3,dc=(t&7)-(f&7);
+if(tp=='P'&&t===ep)P[t+8]='';
+ep=(tp=='P'&&r1==6&&r2==4)?f-8:-1;
+if(tp=='K'&&Math.abs(dc)==2){if(dc>0){P[f+1]=P[63];P[63]='';moved[63]=1;}else{P[f-1]=P[56];P[56]='';moved[56]=1;}}
+if(tp=='P'&&r2==0)pc='uQ';
+P[t]=pc;P[f]='';moved[f]=1;moved[t]=1;lst={f,t};selectSq(-1);mv++;document.getElementById('m').textContent=mv;
+}
+function updGhost(){raf=0;if(drg)G.style.transform=`translate3d(${gx}px,${gy}px,0) translate(-50%,-50%)`;}
+B.addEventListener('touchstart',e=>{
+e.preventDefault();
+for(let t of e.changedTouches){
+let i=idx(t.clientX,t.clientY);if(i<0)continue;
+if(ed){let c=tool?edWho+tool:'';P[i]=P[i]==c?'':c;SV=P.slice();render();continue;}
+if(end)continue;
+if(sel!==-1&&leg.has(i)){exec(sel,i);drg=0;tid=null;G.style.display='none';render();continue;}
+if(P[i]&&P[i].charAt(0)=='u'){selectSq(i);tid=t.identifier;df=i;sx=t.clientX;sy=t.clientY;drg=0;render();}
+else{selectSq(-1);render();}
+}},{passive:false});
+B.addEventListener('touchmove',e=>{
+e.preventDefault();if(df<0)return;
+for(let t of e.changedTouches){if(t.identifier===tid){gx=t.clientX;gy=t.clientY;if(!drg&&Math.hypot(gx-sx,gy-sy)>8){drg=1;G.innerHTML=pHtml(P[df]);G.style.display='flex';render();}if(drg&&!raf)raf=requestAnimationFrame(updGhost);}}
+},{passive:false});
+B.addEventListener('touchend',e=>{
+e.preventDefault();
+for(let t of e.changedTouches){if(t.identifier===tid){if(drg){G.style.display='none';let to=idx(t.clientX,t.clientY);if(to>=0&&leg.has(to))exec(df,to);}tid=null;df=-1;drg=0;render();}}
+},{passive:false});
+function render(){
+for(let i=0;i<64;i++){
+let s=sq[i],pc=P[i],cl='sq '+(((i>>3)+i)%2?'d':'l');
+if(lst&&(lst.f===i||lst.t===i))cl+=' lst';
+if(sel===i)cl+=' sel';
+if(!ed&&leg.has(i))cl+=(pc||i===ep)?' cap':' dot';
+if(s.className!==cl)s.className=cl;
+let h=(drg&&df===i)?'':pHtml(pc);
+if(s.innerHTML!==h)s.innerHTML=h;
+}}
+function setSide(s){side=s;document.getElementById('cw').className=s=='w'?'on':'';document.getElementById('cb').className=s=='b'?'on':'';SV=makeStart(s);rst();buildPal();}
+function setDur(d,btn){dur=d;['t15','t0','tc'].forEach(id=>document.getElementById(id).className='');if(btn)btn.className='on';rst();}
+function askDur(btn){let v=parseInt(prompt('Введи время в секундах (1–999):','30'),10);if(v>0&&v<=999){btn.textContent=v+'с';setDur(v,btn);}}
+function nextTheme(){th=(th+1)%TH.length;document.body.className=TH[th];}
+function nextFont(){fnt=(fnt+1)%SETS.length;render();buildPal();}
+function rst(){clearInterval(tm);run=0;end=0;mv=0;lst=null;ep=-1;moved={};drg=0;tid=null;df=-1;G.style.display='none';selectSq(-1);P=SV.slice();document.getElementById('t').textContent=dur===0?'0.0':dur.toFixed(1);document.getElementById('m').textContent='0';document.getElementById('s').textContent='0.00';render();}
+function toggleEd(on){ed=on;clearInterval(tm);run=0;end=0;selectSq(-1);lst=null;document.getElementById('pal').style.display=on?'block':'none';document.getElementById('ui').style.display=on?'none':'flex';if(on)buildPal();else{SV=P.slice();rst();}render();}
+function buildPal(){let g=document.getElementById('pg');g.innerHTML='';for(let t of['K','Q','R','B','N','P','']){let d=document.createElement('div');d.className='pcell'+(tool===t?' on':'');d.innerHTML=t?pHtml(edWho+t):'✕';d.onclick=()=>{tool=t;buildPal();};g.appendChild(d);}}
+render();
+</script>
+</body>
+</html>
